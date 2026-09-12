@@ -1,0 +1,22 @@
+-- Schema for Mini Ticket Service System
+
+CREATE TABLE IF NOT EXISTS Ticket (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customerName TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'Medium',
+    status TEXT NOT NULL DEFAULT 'Open',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS Comment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticketId INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticketId) REFERENCES Ticket(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_comment_ticketId ON Comment(ticketId);
