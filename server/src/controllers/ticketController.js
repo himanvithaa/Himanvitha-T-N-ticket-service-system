@@ -46,6 +46,11 @@ async function getAllTickets(req, res, next) {
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
+    // Calculate total count of matching tickets
+    const countSql = `SELECT COUNT(*) AS count FROM Ticket ${whereSql}`;
+    const countResult = await get(countSql, params);
+    const totalCount = countResult ? countResult.count : 0;
+
     // sortBy: accepts 'createdAt' or 'priority', default createdAt, newest first
     let orderSql = 'ORDER BY createdAt DESC';
     if (sortBy === 'priority') {
@@ -58,12 +63,18 @@ async function getAllTickets(req, res, next) {
     const safePage = !isNaN(pageNum) && pageNum > 0 ? pageNum : 1;
     const safeLimit = !isNaN(limitNum) && limitNum > 0 ? limitNum : 10;
     const offset = (safePage - 1) * safeLimit;
+    const totalPages = Math.max(1, Math.ceil(totalCount / safeLimit));
 
     const sql = `SELECT * FROM Ticket ${whereSql} ${orderSql} LIMIT ? OFFSET ?`;
-    params.push(safeLimit, offset);
+    const queryParams = [...params, safeLimit, offset];
 
-    const tickets = await all(sql, params);
-    return res.status(200).json(tickets);
+    const tickets = await all(sql, queryParams);
+
+    return res.status(200).json({
+      tickets,
+      totalCount,
+      totalPages
+    });
   } catch (error) {
     next(error);
   }

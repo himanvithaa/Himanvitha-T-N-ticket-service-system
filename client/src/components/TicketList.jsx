@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './TicketList.css';
 import CreateTicketModal from './CreateTicketModal';
 import TicketDetailModal from './TicketDetailModal';
@@ -11,41 +11,67 @@ function TicketList() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState(null);
 
-  const fetchTickets = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('http://localhost:5000/api/tickets');
-      if (!response.ok) {
-        let errorMessage = `HTTP error ${response.status}`;
-        try {
-          const errorData = await response.json();
-          if (errorData && errorData.error) {
-            errorMessage = errorData.error;
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const fetchTickets = useCallback(
+    async (targetPage = page, targetLimit = limit) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(
+          `http://localhost:5000/api/tickets?page=${targetPage}&limit=${targetLimit}`
+        );
+        if (!response.ok) {
+          let errorMessage = `HTTP error ${response.status}`;
+          try {
+            const errorData = await response.json();
+            if (errorData && errorData.error) {
+              errorMessage = errorData.error;
+            }
+          } catch {
+            if (response.statusText) {
+              errorMessage = response.statusText;
+            }
           }
-        } catch {
-          if (response.statusText) {
-            errorMessage = response.statusText;
-          }
+          throw new Error(errorMessage);
         }
-        throw new Error(errorMessage);
+
+        const data = await response.json();
+
+        // Handle both { tickets, totalCount, totalPages } and array fallback
+        if (Array.isArray(data)) {
+          setTickets(data);
+          setTotalCount(data.length);
+          setTotalPages(Math.max(1, Math.ceil(data.length / targetLimit)));
+        } else {
+          setTickets(Array.isArray(data.tickets) ? data.tickets : []);
+          setTotalCount(typeof data.totalCount === 'number' ? data.totalCount : 0);
+          setTotalPages(typeof data.totalPages === 'number' ? Math.max(1, data.totalPages) : 1);
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to fetch tickets');
+      } finally {
+        setLoading(false);
       }
-      const data = await response.json();
-      setTickets(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message || 'Failed to fetch tickets');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [page, limit]
+  );
 
   useEffect(() => {
-    fetchTickets();
-  }, []);
+    fetchTickets(page, limit);
+  }, [fetchTickets, page, limit]);
 
   const handleTicketCreated = () => {
-    // Refresh tickets list without full page reload
-    fetchTickets();
+    // Refresh to page 1 so user can see the newly created ticket at the top
+    if (page === 1) {
+      fetchTickets(1, limit);
+    } else {
+      setPage(1);
+    }
   };
 
   const handleTicketUpdated = (updatedTicket) => {
@@ -53,6 +79,18 @@ function TicketList() {
     setTickets((prevTickets) =>
       prevTickets.map((t) => (t.id === updatedTicket.id ? updatedTicket : t))
     );
+  };
+
+  const handlePrevPage = () => {
+    if (page > 1) {
+      setPage((prev) => prev - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (page < totalPages) {
+      setPage((prev) => prev + 1);
+    }
   };
 
   const getPriorityBadgeClass = (priority) => {
@@ -89,7 +127,9 @@ function TicketList() {
         <div className="header-title-group">
           <h2>Tickets</h2>
           {!loading && !error && (
-            <span className="ticket-count">{tickets.length} total tickets</span>
+            <span className="ticket-count">
+              {totalCount} total {totalCount === 1 ? 'ticket' : 'tickets'}
+            </span>
           )}
         </div>
         <button
@@ -123,7 +163,7 @@ function TicketList() {
       {error && !loading && (
         <div className="error-container">
           <span className="error-message">Error: {error}</span>
-          <button className="retry-button" onClick={fetchTickets}>
+          <button className="retry-button" onClick={() => fetchTickets(page, limit)}>
             Retry
           </button>
         </div>
@@ -136,45 +176,82 @@ function TicketList() {
               <p>No tickets found.</p>
             </div>
           ) : (
-            <table className="tickets-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Customer Name</th>
-                  <th>Title</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Created Date</th>
-                  <th>Last Updated Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tickets.map((ticket) => (
-                  <tr
-                    key={ticket.id}
-                    className="ticket-row-clickable"
-                    onClick={() => setSelectedTicketId(ticket.id)}
-                    title="Click to view ticket details"
-                  >
-                    <td className="ticket-id">#{ticket.id}</td>
-                    <td>{ticket.customerName}</td>
-                    <td className="ticket-title">{ticket.title}</td>
-                    <td>
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={getStatusBadgeClass(ticket.status)}>
-                        {ticket.status}
-                      </span>
-                    </td>
-                    <td>{formatDate(ticket.createdAt)}</td>
-                    <td>{formatDate(ticket.updatedAt)}</td>
+            <>
+              <table className="tickets-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Customer Name</th>
+                    <th>Title</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Created Date</th>
+                    <th>Last Updated Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {tickets.map((ticket) => (
+                    <tr
+                      key={ticket.id}
+                      className="ticket-row-clickable"
+                      onClick={() => setSelectedTicketId(ticket.id)}
+                      title="Click to view ticket details"
+                    >
+                      <td className="ticket-id">#{ticket.id}</td>
+                      <td>{ticket.customerName}</td>
+                      <td className="ticket-title">{ticket.title}</td>
+                      <td>
+                        <span className={getPriorityBadgeClass(ticket.priority)}>
+                          {ticket.priority}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={getStatusBadgeClass(ticket.status)}>
+                          {ticket.status}
+                        </span>
+                      </td>
+                      <td>{formatDate(ticket.createdAt)}</td>
+                      <td>{formatDate(ticket.updatedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Pagination Controls */}
+              <div className="pagination-container">
+                <div className="pagination-info">
+                  Showing Page <span className="pagination-current">{page}</span> of{' '}
+                  <span className="pagination-total">{totalPages}</span> ({totalCount}{' '}
+                  {totalCount === 1 ? 'ticket' : 'tickets'} total)
+                </div>
+
+                <div className="pagination-actions">
+                  <button
+                    type="button"
+                    className="pagination-button"
+                    onClick={handlePrevPage}
+                    disabled={page <= 1 || loading}
+                    aria-label="Previous Page"
+                  >
+                    &larr; Previous
+                  </button>
+
+                  <span className="pagination-page-indicator">
+                    Page {page} of {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="pagination-button"
+                    onClick={handleNextPage}
+                    disabled={page >= totalPages || loading}
+                    aria-label="Next Page"
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

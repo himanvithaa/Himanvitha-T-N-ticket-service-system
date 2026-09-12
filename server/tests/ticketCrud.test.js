@@ -53,63 +53,72 @@ async function runTests() {
     console.log('\n--- Testing GET /api/tickets (default pagination and sorting) ---');
     const getAll = await request('GET', '/api/tickets');
     console.assert(getAll.status === 200, `Expected 200, got ${getAll.status}`);
-    console.assert(Array.isArray(getAll.body) && getAll.body.length >= 8, 'Expected at least 8 tickets');
-    console.log(`✓ GET /api/tickets passed (${getAll.body.length} tickets returned)`);
+    console.assert(Array.isArray(getAll.body.tickets) && getAll.body.tickets.length >= 8, 'Expected at least 8 tickets');
+    console.assert(typeof getAll.body.totalCount === 'number' && getAll.body.totalCount >= 8, 'Expected totalCount >= 8');
+    console.assert(typeof getAll.body.totalPages === 'number' && getAll.body.totalPages >= 1, 'Expected totalPages >= 1');
+    console.log(`✓ GET /api/tickets passed (${getAll.body.tickets.length} tickets, totalCount: ${getAll.body.totalCount})`);
 
     console.log('\n--- Testing query parameters: status, priority, customer, search, pagination, sortBy ---');
 
     // Filter by status (exact)
     const filterStatus = await request('GET', '/api/tickets?status=Open');
     console.assert(filterStatus.status === 200, 'Expected 200 for status filter');
-    console.assert(filterStatus.body.every((t) => t.status === 'Open'), 'All returned tickets should have status Open');
-    console.log(`✓ Filter by status=Open passed (${filterStatus.body.length} tickets)`);
+    console.assert(filterStatus.body.tickets.every((t) => t.status === 'Open'), 'All returned tickets should have status Open');
+    console.log(`✓ Filter by status=Open passed (${filterStatus.body.tickets.length} tickets)`);
 
     // Filter by priority (exact)
     const filterPriority = await request('GET', '/api/tickets?priority=High');
     console.assert(filterPriority.status === 200, 'Expected 200 for priority filter');
-    console.assert(filterPriority.body.every((t) => t.priority === 'High'), 'All returned tickets should have priority High');
-    console.log(`✓ Filter by priority=High passed (${filterPriority.body.length} tickets)`);
+    console.assert(filterPriority.body.tickets.every((t) => t.priority === 'High'), 'All returned tickets should have priority High');
+    console.log(`✓ Filter by priority=High passed (${filterPriority.body.tickets.length} tickets)`);
 
     // Partial match on customer
     const filterCustomer = await request('GET', '/api/tickets?customer=Alice');
     console.assert(filterCustomer.status === 200, 'Expected 200 for customer filter');
-    console.assert(filterCustomer.body.length >= 1, 'Expected at least 1 ticket for Alice');
-    console.assert(filterCustomer.body.every((t) => t.customerName.includes('Alice')), 'Matches should contain Alice');
-    console.log(`✓ Filter by customer=Alice passed (${filterCustomer.body.length} tickets)`);
+    console.assert(filterCustomer.body.tickets.length >= 1, 'Expected at least 1 ticket for Alice');
+    console.assert(filterCustomer.body.tickets.every((t) => t.customerName.includes('Alice')), 'Matches should contain Alice');
+    console.log(`✓ Filter by customer=Alice passed (${filterCustomer.body.tickets.length} tickets)`);
 
     // Partial match on search (title or customerName)
     const filterSearch = await request('GET', '/api/tickets?search=password');
     console.assert(filterSearch.status === 200, 'Expected 200 for search filter');
-    console.assert(filterSearch.body.length >= 1, 'Expected at least 1 ticket matching password');
+    console.assert(filterSearch.body.tickets.length >= 1, 'Expected at least 1 ticket matching password');
     console.assert(
-      filterSearch.body.every(
+      filterSearch.body.tickets.every(
         (t) => t.title.toLowerCase().includes('password') || t.customerName.toLowerCase().includes('password')
       ),
       'Matches should contain search term'
     );
-    console.log(`✓ Search filter passed (${filterSearch.body.length} tickets)`);
+    console.log(`✓ Search filter passed (${filterSearch.body.tickets.length} tickets)`);
 
     // Pagination: limit & page
     const page1Limit3 = await request('GET', '/api/tickets?page=1&limit=3');
-    console.assert(page1Limit3.body.length === 3, `Expected 3 tickets, got ${page1Limit3.body.length}`);
+    console.assert(page1Limit3.body.tickets.length === 3, `Expected 3 tickets, got ${page1Limit3.body.tickets.length}`);
     const page2Limit3 = await request('GET', '/api/tickets?page=2&limit=3');
-    console.assert(page2Limit3.body.length === 3, `Expected 3 tickets on page 2, got ${page2Limit3.body.length}`);
-    console.assert(page1Limit3.body[0].id !== page2Limit3.body[0].id, 'Page 1 and Page 2 should have distinct items');
+    console.assert(page2Limit3.body.tickets.length === 3, `Expected 3 tickets on page 2, got ${page2Limit3.body.tickets.length}`);
+    console.assert(page1Limit3.body.tickets[0].id !== page2Limit3.body.tickets[0].id, 'Page 1 and Page 2 should have distinct items');
+    console.assert(page1Limit3.body.totalPages >= 3, 'Expected at least 3 total pages with limit 3');
     console.log('✓ Pagination (page & limit) passed');
 
     // Sort by priority (High -> Medium -> Low)
     const sortedPriority = await request('GET', '/api/tickets?sortBy=priority&limit=10');
     console.assert(sortedPriority.status === 200, 'Expected 200 for sortBy=priority');
     const priorityOrder = { High: 1, Medium: 2, Low: 3 };
-    for (let i = 0; i < sortedPriority.body.length - 1; i++) {
-      const curr = priorityOrder[sortedPriority.body[i].priority];
-      const next = priorityOrder[sortedPriority.body[i + 1].priority];
+    for (let i = 0; i < sortedPriority.body.tickets.length - 1; i++) {
+      const curr = priorityOrder[sortedPriority.body.tickets[i].priority];
+      const next = priorityOrder[sortedPriority.body.tickets[i + 1].priority];
       console.assert(curr <= next, `Expected priority ${curr} <= ${next} at index ${i}`);
     }
     console.log('✓ Sort by priority passed');
 
     console.log('\n--- Testing Comment Endpoints: POST & GET /api/tickets/:id/comments ---');
-    const ticketId = getAll.body[0].id;
+    const commentTicket = await request('POST', '/api/tickets', {
+      customerName: 'Comment Tester',
+      title: 'Ticket for comments',
+      description: 'Testing comment flow',
+      priority: 'Low'
+    });
+    const ticketId = commentTicket.body.id;
 
     // POST comment missing text
     const commentMissingText = await request('POST', `/api/tickets/${ticketId}/comments`, {});

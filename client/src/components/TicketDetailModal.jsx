@@ -9,6 +9,15 @@ function TicketDetailModal({ ticketId, onClose, onTicketUpdated }) {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updateError, setUpdateError] = useState(null);
 
+  // Comments state
+  const [comments, setComments] = useState([]);
+  const [commentsLoading, setCommentsLoading] = useState(true);
+  const [commentsError, setCommentsError] = useState(null);
+  const [newCommentText, setNewCommentText] = useState('');
+  const [commentInputError, setCommentInputError] = useState(null);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentSubmitError, setCommentSubmitError] = useState(null);
+
   useEffect(() => {
     if (!ticketId) return;
 
@@ -51,7 +60,45 @@ function TicketDetailModal({ ticketId, onClose, onTicketUpdated }) {
       }
     };
 
+    const fetchComments = async () => {
+      setCommentsLoading(true);
+      setCommentsError(null);
+      setCommentSubmitError(null);
+
+      try {
+        const response = await fetch(`http://localhost:5000/api/tickets/${ticketId}/comments`);
+        if (!response.ok) {
+          let errMsg = `HTTP error ${response.status}`;
+          try {
+            const errData = await response.json();
+            if (errData && errData.error) {
+              errMsg = errData.error;
+            }
+          } catch {
+            if (response.statusText) {
+              errMsg = response.statusText;
+            }
+          }
+          throw new Error(errMsg);
+        }
+
+        const data = await response.json();
+        if (isMounted) {
+          setComments(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setCommentsError(err.message || 'Failed to load comments');
+        }
+      } finally {
+        if (isMounted) {
+          setCommentsLoading(false);
+        }
+      }
+    };
+
     fetchTicketDetails();
+    fetchComments();
 
     return () => {
       isMounted = false;
@@ -101,6 +148,54 @@ function TicketDetailModal({ ticketId, onClose, onTicketUpdated }) {
       setUpdateError(err.message || 'Failed to update ticket status');
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+
+    // Frontend validation: block submission if text is empty
+    if (!newCommentText.trim()) {
+      setCommentInputError('Please enter a comment.');
+      return;
+    }
+
+    setCommentSubmitting(true);
+    setCommentSubmitError(null);
+    setCommentInputError(null);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticketId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text: newCommentText.trim() })
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        const errMsg =
+          (data && data.error) ||
+          `Failed to post comment (${response.status}): ${response.statusText || 'Error'}`;
+        throw new Error(errMsg);
+      }
+
+      // Append new comment to list immediately
+      setComments((prev) => [...prev, data]);
+      setNewCommentText('');
+      setCommentInputError(null);
+      setCommentSubmitError(null);
+    } catch (err) {
+      setCommentSubmitError(err.message || 'Failed to post comment.');
+    } finally {
+      setCommentSubmitting(false);
     }
   };
 
@@ -257,6 +352,92 @@ function TicketDetailModal({ ticketId, onClose, onTicketUpdated }) {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Comments Section */}
+              <div className="detail-comments-section">
+                <div className="comments-header">
+                  <h4 className="comments-title">Comments</h4>
+                  {!commentsLoading && (
+                    <span className="comments-count-badge">
+                      {comments.length}
+                    </span>
+                  )}
+                </div>
+
+                {commentsLoading && (
+                  <div className="comments-loading">
+                    <span className="status-spinner"></span>
+                    <span>Loading comments...</span>
+                  </div>
+                )}
+
+                {commentsError && !commentsLoading && (
+                  <div className="comments-fetch-error">
+                    <span>Failed to load comments: {commentsError}</span>
+                  </div>
+                )}
+
+                {!commentsLoading && !commentsError && (
+                  <>
+                    {comments.length === 0 ? (
+                      <p className="empty-comments">No comments yet.</p>
+                    ) : (
+                      <div className="comments-list">
+                        {comments.map((comment) => (
+                          <div key={comment.id} className="comment-card">
+                            <div className="comment-card-header">
+                              <span className="comment-date">
+                                {formatDate(comment.createdAt)}
+                              </span>
+                            </div>
+                            <div className="comment-body">{comment.text}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Add Comment Form */}
+                <form className="add-comment-form" onSubmit={handleAddComment}>
+                  {commentSubmitError && (
+                    <div className="comment-submit-error-banner" role="alert">
+                      <span>{commentSubmitError}</span>
+                    </div>
+                  )}
+
+                  <div className="comment-input-container">
+                    <div className="comment-input-row">
+                      <input
+                        type="text"
+                        className={`comment-text-input ${
+                          commentInputError ? 'input-has-error' : ''
+                        }`}
+                        placeholder="Write a comment..."
+                        value={newCommentText}
+                        onChange={(e) => {
+                          setNewCommentText(e.target.value);
+                          if (commentInputError) setCommentInputError(null);
+                        }}
+                        disabled={commentSubmitting}
+                      />
+                      <button
+                        type="submit"
+                        className="btn-add-comment"
+                        disabled={commentSubmitting}
+                      >
+                        {commentSubmitting ? 'Posting...' : 'Add Comment'}
+                      </button>
+                    </div>
+
+                    {commentInputError && (
+                      <span className="comment-validation-msg">
+                        {commentInputError}
+                      </span>
+                    )}
+                  </div>
+                </form>
               </div>
             </>
           )}
