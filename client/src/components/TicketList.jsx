@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './TicketList.css';
+import FilterBar from './FilterBar';
 import CreateTicketModal from './CreateTicketModal';
 import TicketDetailModal from './TicketDetailModal';
 import { formatDate } from '../utils/formatDate';
@@ -17,13 +18,45 @@ function TicketList() {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Filter state
+  const [filters, setFilters] = useState({
+    status: 'All',
+    priority: 'All',
+    customer: '',
+    search: '',
+  });
+
+  const hasActiveFilters = Boolean(
+    (filters.status && filters.status !== 'All') ||
+    (filters.priority && filters.priority !== 'All') ||
+    (filters.customer && filters.customer.trim()) ||
+    (filters.search && filters.search.trim())
+  );
+
   const fetchTickets = useCallback(
-    async (targetPage = page, targetLimit = limit) => {
+    async (targetPage = page, targetLimit = limit, activeFilters = filters) => {
       setLoading(true);
       setError(null);
       try {
+        const params = new URLSearchParams();
+        params.append('page', targetPage);
+        params.append('limit', targetLimit);
+
+        if (activeFilters.status && activeFilters.status !== 'All') {
+          params.append('status', activeFilters.status);
+        }
+        if (activeFilters.priority && activeFilters.priority !== 'All') {
+          params.append('priority', activeFilters.priority);
+        }
+        if (activeFilters.customer && activeFilters.customer.trim()) {
+          params.append('customer', activeFilters.customer.trim());
+        }
+        if (activeFilters.search && activeFilters.search.trim()) {
+          params.append('search', activeFilters.search.trim());
+        }
+
         const response = await fetch(
-          `http://localhost:5000/api/tickets?page=${targetPage}&limit=${targetLimit}`
+          `http://localhost:5000/api/tickets?${params.toString()}`
         );
         if (!response.ok) {
           let errorMessage = `HTTP error ${response.status}`;
@@ -58,17 +91,35 @@ function TicketList() {
         setLoading(false);
       }
     },
-    [page, limit]
+    [page, limit, filters]
   );
 
   useEffect(() => {
-    fetchTickets(page, limit);
-  }, [fetchTickets, page, limit]);
+    fetchTickets(page, limit, filters);
+  }, [fetchTickets, page, limit, filters]);
+
+  const handleFilterChange = (field, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    setPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      status: 'All',
+      priority: 'All',
+      customer: '',
+      search: '',
+    });
+    setPage(1);
+  };
 
   const handleTicketCreated = () => {
     // Refresh to page 1 so user can see the newly created ticket at the top
     if (page === 1) {
-      fetchTickets(1, limit);
+      fetchTickets(1, limit, filters);
     } else {
       setPage(1);
     }
@@ -153,6 +204,13 @@ function TicketList() {
         onTicketUpdated={handleTicketUpdated}
       />
 
+      {/* Filter Bar */}
+      <FilterBar
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        onClearFilters={handleClearFilters}
+      />
+
       {loading && (
         <div className="loading-container">
           <div className="spinner"></div>
@@ -163,7 +221,10 @@ function TicketList() {
       {error && !loading && (
         <div className="error-container">
           <span className="error-message">Error: {error}</span>
-          <button className="retry-button" onClick={() => fetchTickets(page, limit)}>
+          <button
+            className="retry-button"
+            onClick={() => fetchTickets(page, limit, filters)}
+          >
             Retry
           </button>
         </div>
@@ -172,8 +233,12 @@ function TicketList() {
       {!loading && !error && (
         <div className="table-wrapper">
           {tickets.length === 0 ? (
-            <div className="empty-state">
-              <p>No tickets found.</p>
+            <div className="empty-state" data-testid="empty-state">
+              <p data-testid="empty-message">
+                {hasActiveFilters
+                  ? 'No tickets match your filters'
+                  : 'No tickets found.'}
+              </p>
             </div>
           ) : (
             <>
