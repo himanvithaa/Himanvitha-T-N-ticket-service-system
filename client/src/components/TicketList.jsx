@@ -262,21 +262,21 @@ function TicketList() {
                       onClick={() => setSelectedTicketId(ticket.id)}
                       title="Click to view ticket details"
                     >
-                      <td className="ticket-id">#{ticket.id}</td>
-                      <td>{ticket.customerName}</td>
-                      <td className="ticket-title">{ticket.title}</td>
-                      <td>
+                      <td className="ticket-id" data-label="ID">#{ticket.id}</td>
+                      <td data-label="Customer Name">{ticket.customerName}</td>
+                      <td className="ticket-title" data-label="Title">{ticket.title}</td>
+                      <td data-label="Priority">
                         <span className={getPriorityBadgeClass(ticket.priority)}>
                           {ticket.priority}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <span className={getStatusBadgeClass(ticket.status)}>
                           {ticket.status}
                         </span>
                       </td>
-                      <td>{formatDate(ticket.createdAt)}</td>
-                      <td>{formatDate(ticket.updatedAt)}</td>
+                      <td data-label="Created Date">{formatDate(ticket.createdAt)}</td>
+                      <td data-label="Last Updated Date">{formatDate(ticket.updatedAt)}</td>
                     </tr>
                   ))}
                 </tbody>
