@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import './TicketList.css';
+import CreateTicketModal from './CreateTicketModal';
 
 function TicketList() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -37,6 +39,11 @@ function TicketList() {
   useEffect(() => {
     fetchTickets();
   }, []);
+
+  const handleTicketCreated = () => {
+    // Refresh tickets list without full page reload
+    fetchTickets();
+  };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
@@ -80,11 +87,26 @@ function TicketList() {
   return (
     <div className="ticket-list-container">
       <div className="ticket-list-header">
-        <h2>Tickets</h2>
-        {!loading && !error && (
-          <span className="ticket-count">{tickets.length} total tickets</span>
-        )}
+        <div className="header-title-group">
+          <h2>Tickets</h2>
+          {!loading && !error && (
+            <span className="ticket-count">{tickets.length} total tickets</span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn-create-ticket"
+          onClick={() => setIsCreateModalOpen(true)}
+        >
+          + Create Ticket
+        </button>
       </div>
+
+      <CreateTicketModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handleTicketCreated}
+      />
 
       {loading && (
         <div className="loading-container">
