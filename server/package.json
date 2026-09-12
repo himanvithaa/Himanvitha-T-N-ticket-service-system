@@ -2,11 +2,13 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
+    "start": "node server.js",
+    "seed": "node src/models/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
