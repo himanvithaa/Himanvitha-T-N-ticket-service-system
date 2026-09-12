@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const ticketController = require('../controllers/ticketController');
+const commentRoutes = require('./commentRoutes');
+
+// Nested comment routes: /api/tickets/:id/comments
+router.use('/:id/comments', commentRoutes);
 
 // GET /api/tickets - returns all tickets
 router.get('/', ticketController.getAllTickets);

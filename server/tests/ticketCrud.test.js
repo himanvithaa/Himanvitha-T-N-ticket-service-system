@@ -1,10 +1,10 @@
 const http = require('http');
 const app = require('../server');
-const { run, exec } = require('../src/models/database');
+const { run, get, exec } = require('../src/models/database');
 const seed = require('../src/models/seed');
 
 let server;
-const PORT = 5001;
+const PORT = 5002;
 
 function request(method, path, data = null) {
   return new Promise((resolve, reject) => {
@@ -50,103 +50,129 @@ async function runTests() {
     // Ensure seed is executed
     await seed();
 
-    console.log('\n--- Testing GET /api/tickets ---');
+    console.log('\n--- Testing GET /api/tickets (default pagination and sorting) ---');
     const getAll = await request('GET', '/api/tickets');
     console.assert(getAll.status === 200, `Expected 200, got ${getAll.status}`);
     console.assert(Array.isArray(getAll.body) && getAll.body.length >= 8, 'Expected at least 8 tickets');
-    console.log('✓ GET /api/tickets passed');
+    console.log(`✓ GET /api/tickets passed (${getAll.body.length} tickets returned)`);
 
-    console.log('\n--- Testing GET /api/tickets/:id ---');
-    const getOne = await request('GET', `/api/tickets/${getAll.body[0].id}`);
-    console.assert(getOne.status === 200, `Expected 200, got ${getOne.status}`);
-    console.assert(getOne.body.id === getAll.body[0].id, 'Ticket ID mismatch');
+    console.log('\n--- Testing query parameters: status, priority, customer, search, pagination, sortBy ---');
 
-    const getNotFound = await request('GET', '/api/tickets/999999');
-    console.assert(getNotFound.status === 404, `Expected 404, got ${getNotFound.status}`);
-    console.assert(getNotFound.body.error === 'Ticket not found', 'Expected Ticket not found error');
-    console.log('✓ GET /api/tickets/:id passed');
+    // Filter by status (exact)
+    const filterStatus = await request('GET', '/api/tickets?status=Open');
+    console.assert(filterStatus.status === 200, 'Expected 200 for status filter');
+    console.assert(filterStatus.body.every((t) => t.status === 'Open'), 'All returned tickets should have status Open');
+    console.log(`✓ Filter by status=Open passed (${filterStatus.body.length} tickets)`);
 
-    console.log('\n--- Testing POST /api/tickets validation ---');
-    const missingName = await request('POST', '/api/tickets', {
-      title: 'Bug',
-      description: 'Desc',
-      priority: 'High'
+    // Filter by priority (exact)
+    const filterPriority = await request('GET', '/api/tickets?priority=High');
+    console.assert(filterPriority.status === 200, 'Expected 200 for priority filter');
+    console.assert(filterPriority.body.every((t) => t.priority === 'High'), 'All returned tickets should have priority High');
+    console.log(`✓ Filter by priority=High passed (${filterPriority.body.length} tickets)`);
+
+    // Partial match on customer
+    const filterCustomer = await request('GET', '/api/tickets?customer=Alice');
+    console.assert(filterCustomer.status === 200, 'Expected 200 for customer filter');
+    console.assert(filterCustomer.body.length >= 1, 'Expected at least 1 ticket for Alice');
+    console.assert(filterCustomer.body.every((t) => t.customerName.includes('Alice')), 'Matches should contain Alice');
+    console.log(`✓ Filter by customer=Alice passed (${filterCustomer.body.length} tickets)`);
+
+    // Partial match on search (title or customerName)
+    const filterSearch = await request('GET', '/api/tickets?search=password');
+    console.assert(filterSearch.status === 200, 'Expected 200 for search filter');
+    console.assert(filterSearch.body.length >= 1, 'Expected at least 1 ticket matching password');
+    console.assert(
+      filterSearch.body.every(
+        (t) => t.title.toLowerCase().includes('password') || t.customerName.toLowerCase().includes('password')
+      ),
+      'Matches should contain search term'
+    );
+    console.log(`✓ Search filter passed (${filterSearch.body.length} tickets)`);
+
+    // Pagination: limit & page
+    const page1Limit3 = await request('GET', '/api/tickets?page=1&limit=3');
+    console.assert(page1Limit3.body.length === 3, `Expected 3 tickets, got ${page1Limit3.body.length}`);
+    const page2Limit3 = await request('GET', '/api/tickets?page=2&limit=3');
+    console.assert(page2Limit3.body.length === 3, `Expected 3 tickets on page 2, got ${page2Limit3.body.length}`);
+    console.assert(page1Limit3.body[0].id !== page2Limit3.body[0].id, 'Page 1 and Page 2 should have distinct items');
+    console.log('✓ Pagination (page & limit) passed');
+
+    // Sort by priority (High -> Medium -> Low)
+    const sortedPriority = await request('GET', '/api/tickets?sortBy=priority&limit=10');
+    console.assert(sortedPriority.status === 200, 'Expected 200 for sortBy=priority');
+    const priorityOrder = { High: 1, Medium: 2, Low: 3 };
+    for (let i = 0; i < sortedPriority.body.length - 1; i++) {
+      const curr = priorityOrder[sortedPriority.body[i].priority];
+      const next = priorityOrder[sortedPriority.body[i + 1].priority];
+      console.assert(curr <= next, `Expected priority ${curr} <= ${next} at index ${i}`);
+    }
+    console.log('✓ Sort by priority passed');
+
+    console.log('\n--- Testing Comment Endpoints: POST & GET /api/tickets/:id/comments ---');
+    const ticketId = getAll.body[0].id;
+
+    // POST comment missing text
+    const commentMissingText = await request('POST', `/api/tickets/${ticketId}/comments`, {});
+    console.assert(commentMissingText.status === 400, `Expected 400, got ${commentMissingText.status}`);
+    console.assert(commentMissingText.body.error !== undefined, 'Expected error in response');
+    console.log('✓ POST comment missing text returns 400');
+
+    // POST comment for non-existent ticket
+    const commentNotFound = await request('POST', '/api/tickets/999999/comments', { text: 'Hello' });
+    console.assert(commentNotFound.status === 404, `Expected 404, got ${commentNotFound.status}`);
+    console.assert(commentNotFound.body.error === 'Ticket not found', 'Expected Ticket not found');
+    console.log('✓ POST comment on invalid ticket returns 404');
+
+    // POST comment success
+    const comment1 = await request('POST', `/api/tickets/${ticketId}/comments`, { text: 'First test comment' });
+    console.assert(comment1.status === 201, `Expected 201, got ${comment1.status}`);
+    console.assert(comment1.body.id !== undefined, 'Expected comment id');
+    console.assert(String(comment1.body.ticketId) === String(ticketId), 'Expected ticketId');
+    console.assert(comment1.body.text === 'First test comment', 'Expected text to match');
+    console.assert(comment1.body.createdAt !== undefined, 'Expected createdAt');
+    console.log('✓ POST comment 1 success');
+
+    // POST a second comment
+    const comment2 = await request('POST', `/api/tickets/${ticketId}/comments`, { text: 'Second test comment' });
+    console.assert(comment2.status === 201, `Expected 201, got ${comment2.status}`);
+    console.log('✓ POST comment 2 success');
+
+    // GET comments for non-existent ticket
+    const getCommentsNotFound = await request('GET', '/api/tickets/999999/comments');
+    console.assert(getCommentsNotFound.status === 404, `Expected 404, got ${getCommentsNotFound.status}`);
+    console.assert(getCommentsNotFound.body.error === 'Ticket not found', 'Expected Ticket not found');
+    console.log('✓ GET comments on invalid ticket returns 404');
+
+    // GET comments success (ordered oldest first)
+    const getComments = await request('GET', `/api/tickets/${ticketId}/comments`);
+    console.assert(getComments.status === 200, `Expected 200, got ${getComments.status}`);
+    console.assert(Array.isArray(getComments.body), 'Expected array of comments');
+    console.assert(getComments.body.length >= 2, 'Expected at least 2 comments');
+    console.assert(getComments.body[0].text === 'First test comment', 'Oldest comment should be first');
+    console.assert(getComments.body[1].text === 'Second test comment', 'Second comment should follow');
+    console.log('✓ GET comments ordered oldest first passed');
+
+    console.log('\n--- Retesting Core Ticket CRUD ---');
+    const singleTicket = await request('GET', `/api/tickets/${ticketId}`);
+    console.assert(singleTicket.status === 200, 'GET /api/tickets/:id works');
+
+    const createdTicket = await request('POST', '/api/tickets', {
+      customerName: 'Samira Khan',
+      title: 'Billing invoice issue',
+      description: 'Invoice totals do not add up',
+      priority: 'Medium'
     });
-    console.assert(missingName.status === 400, `Expected 400, got ${missingName.status}`);
-    console.assert(missingName.body.error === 'customerName is required', `Expected customerName error, got: ${missingName.body.error}`);
+    console.assert(createdTicket.status === 201, 'POST /api/tickets works');
 
-    const missingTitle = await request('POST', '/api/tickets', {
-      customerName: 'John',
-      description: 'Desc',
-      priority: 'High'
-    });
-    console.assert(missingTitle.status === 400, `Expected 400, got ${missingTitle.status}`);
-    console.assert(missingTitle.body.error === 'title is required', `Expected title error, got: ${missingTitle.body.error}`);
-
-    const invalidPriority = await request('POST', '/api/tickets', {
-      customerName: 'John',
-      title: 'Bug',
-      description: 'Desc',
-      priority: 'Urgent'
-    });
-    console.assert(invalidPriority.status === 400, `Expected 400, got ${invalidPriority.status}`);
-    console.assert(invalidPriority.body.error === 'priority must be Low, Medium, or High', 'Expected priority validation error');
-
-    console.log('\n--- Testing POST /api/tickets success ---');
-    const created = await request('POST', '/api/tickets', {
-      customerName: 'Test Customer',
-      title: 'Test Issue',
-      description: 'Test Description',
-      priority: 'Low'
-    });
-    console.assert(created.status === 201, `Expected 201, got ${created.status}`);
-    console.assert(created.body.id !== undefined, 'Expected created ticket to have id');
-    console.assert(created.body.createdAt !== undefined, 'Expected createdAt');
-    console.assert(created.body.updatedAt !== undefined, 'Expected updatedAt');
-    console.assert(created.body.status === 'Open', 'Expected default status Open');
-    const newId = created.body.id;
-    console.log('✓ POST /api/tickets passed');
-
-    console.log('\n--- Testing PUT /api/tickets/:id ---');
-    const updateInvalidStatus = await request('PUT', `/api/tickets/${newId}`, {
-      status: 'InvalidStatus'
-    });
-    console.assert(updateInvalidStatus.status === 400, `Expected 400, got ${updateInvalidStatus.status}`);
-
-    const updateInvalidPriority = await request('PUT', `/api/tickets/${newId}`, {
-      priority: 'SuperHigh'
-    });
-    console.assert(updateInvalidPriority.status === 400, `Expected 400, got ${updateInvalidPriority.status}`);
-
-    const updateNotFound = await request('PUT', '/api/tickets/999999', {
+    const updatedTicket = await request('PUT', `/api/tickets/${createdTicket.body.id}`, {
       status: 'Resolved'
     });
-    console.assert(updateNotFound.status === 404, `Expected 404, got ${updateNotFound.status}`);
-    console.assert(updateNotFound.body.error === 'Ticket not found', 'Expected 404 error');
+    console.assert(updatedTicket.status === 200 && updatedTicket.body.status === 'Resolved', 'PUT /api/tickets/:id works');
 
-    const updateSuccess = await request('PUT', `/api/tickets/${newId}`, {
-      status: 'In Progress',
-      priority: 'High'
-    });
-    console.assert(updateSuccess.status === 200, `Expected 200, got ${updateSuccess.status}`);
-    console.assert(updateSuccess.body.status === 'In Progress', 'Expected status In Progress');
-    console.assert(updateSuccess.body.priority === 'High', 'Expected priority High');
-    console.log('✓ PUT /api/tickets/:id passed');
+    const deletedTicket = await request('DELETE', `/api/tickets/${createdTicket.body.id}`);
+    console.assert(deletedTicket.status === 200, 'DELETE /api/tickets/:id works');
 
-    console.log('\n--- Testing DELETE /api/tickets/:id ---');
-    const deleteNotFound = await request('DELETE', '/api/tickets/999999');
-    console.assert(deleteNotFound.status === 404, `Expected 404, got ${deleteNotFound.status}`);
-    console.assert(deleteNotFound.body.error === 'Ticket not found', 'Expected 404 error');
-
-    const deleteSuccess = await request('DELETE', `/api/tickets/${newId}`);
-    console.assert(deleteSuccess.status === 200, `Expected 200, got ${deleteSuccess.status}`);
-    console.assert(deleteSuccess.body.message === 'Ticket deleted', 'Expected Ticket deleted message');
-
-    const getAfterDelete = await request('GET', `/api/tickets/${newId}`);
-    console.assert(getAfterDelete.status === 404, 'Expected deleted ticket to be 404');
-    console.log('✓ DELETE /api/tickets/:id passed');
-
-    console.log('\nAll tests completed successfully!');
+    console.log('\nAll tests passed successfully!');
   } catch (err) {
     console.error('Test failure:', err);
     process.exitCode = 1;

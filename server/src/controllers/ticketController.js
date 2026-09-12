@@ -5,11 +5,64 @@ const ALLOWED_STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed'];
 
 /**
  * GET /api/tickets
- * Returns all tickets from the database, no filters yet.
+ * Returns tickets from the database with optional query parameters:
+ * - status (exact match)
+ * - priority (exact match)
+ * - customer (partial match on customerName)
+ * - search (partial match on either title or customerName)
+ * - page & limit (pagination, default page 1 and limit 10)
+ * - sortBy (accepts 'createdAt' or 'priority', default createdAt newest first)
  */
 async function getAllTickets(req, res, next) {
   try {
-    const tickets = await all('SELECT * FROM Ticket');
+    const { status, priority, customer, search, page, limit, sortBy } = req.query;
+
+    const whereClauses = [];
+    const params = [];
+
+    // status: exact match
+    if (status) {
+      whereClauses.push('status = ?');
+      params.push(status);
+    }
+
+    // priority: exact match
+    if (priority) {
+      whereClauses.push('priority = ?');
+      params.push(priority);
+    }
+
+    // customer: partial match on customerName
+    if (customer) {
+      whereClauses.push('customerName LIKE ?');
+      params.push(`%${customer}%`);
+    }
+
+    // search: partial match on either title or customerName
+    if (search) {
+      whereClauses.push('(title LIKE ? OR customerName LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // sortBy: accepts 'createdAt' or 'priority', default createdAt, newest first
+    let orderSql = 'ORDER BY createdAt DESC';
+    if (sortBy === 'priority') {
+      orderSql = "ORDER BY CASE priority WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 WHEN 'Low' THEN 3 ELSE 4 END ASC, createdAt DESC";
+    }
+
+    // page and limit: default page 1 and limit 10
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const safePage = !isNaN(pageNum) && pageNum > 0 ? pageNum : 1;
+    const safeLimit = !isNaN(limitNum) && limitNum > 0 ? limitNum : 10;
+    const offset = (safePage - 1) * safeLimit;
+
+    const sql = `SELECT * FROM Ticket ${whereSql} ${orderSql} LIMIT ? OFFSET ?`;
+    params.push(safeLimit, offset);
+
+    const tickets = await all(sql, params);
     return res.status(200).json(tickets);
   } catch (error) {
     next(error);
