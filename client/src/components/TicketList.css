@@ -146,8 +146,17 @@
   vertical-align: middle;
 }
 
-.tickets-table tr:hover {
-  background-color: #f8fafc;
+.ticket-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.05s;
+}
+
+.ticket-row-clickable:hover {
+  background-color: #f1f5f9 !important;
+}
+
+.ticket-row-clickable:active {
+  background-color: #e2e8f0 !important;
 }
 
 .ticket-id {

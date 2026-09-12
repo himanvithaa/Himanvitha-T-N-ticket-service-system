@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import './TicketList.css';
 import CreateTicketModal from './CreateTicketModal';
+import TicketDetailModal from './TicketDetailModal';
+import { formatDate } from '../utils/formatDate';
 
 function TicketList() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState(null);
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -45,15 +48,11 @@ function TicketList() {
     fetchTickets();
   };
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'N/A';
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
-      return date.toLocaleString();
-    } catch {
-      return dateStr;
-    }
+  const handleTicketUpdated = (updatedTicket) => {
+    // Update the ticket in the local list immediately without full page reload
+    setTickets((prevTickets) =>
+      prevTickets.map((t) => (t.id === updatedTicket.id ? updatedTicket : t))
+    );
   };
 
   const getPriorityBadgeClass = (priority) => {
@@ -108,6 +107,12 @@ function TicketList() {
         onSuccess={handleTicketCreated}
       />
 
+      <TicketDetailModal
+        ticketId={selectedTicketId}
+        onClose={() => setSelectedTicketId(null)}
+        onTicketUpdated={handleTicketUpdated}
+      />
+
       {loading && (
         <div className="loading-container">
           <div className="spinner"></div>
@@ -145,7 +150,12 @@ function TicketList() {
               </thead>
               <tbody>
                 {tickets.map((ticket) => (
-                  <tr key={ticket.id}>
+                  <tr
+                    key={ticket.id}
+                    className="ticket-row-clickable"
+                    onClick={() => setSelectedTicketId(ticket.id)}
+                    title="Click to view ticket details"
+                  >
                     <td className="ticket-id">#{ticket.id}</td>
                     <td>{ticket.customerName}</td>
                     <td className="ticket-title">{ticket.title}</td>
